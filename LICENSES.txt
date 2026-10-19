@@ -1,0 +1,147 @@
+OURIN REMAKE BAILEYS 2.0.0
+Third-party source attribution and license notices
+
+This distribution consolidates source supplied by the user. Runtime packaging
+and API integration were assisted by Codex. Original ownership is retained.
+
+Baileys-Joss 2.0.1
+https://github.com/firdausmntp/Baileys-Joss
+
+MIT License
+
+Copyright (c) 2025 Rajeh Taher/WhiskeySockets
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+alya-js 1.10.0
+https://github.com/irfanModz73/alya-js
+
+MIT License
+
+Copyright (c) 2026 vinikjkkj <contact@vinicius.email>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+zapo-js 1.10.0
+https://github.com/rexxzyid/zapo
+
+MIT License
+
+Copyright (c) 2026 vinikjkkj <contact@vinicius.email>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+Ourin-MD 1.2.0
+https://github.com/LuckyArch/Ourin-MD
+Author headers: Ourin-AI Team. The supplied package.json declares ISC.
+No standalone LICENSE file was present in the supplied archive.
+The formatter functions are adapted from this source; no pre-existing user
+database or credential state is included.
+
+whatsapp-rust-bridge 0.5.4
+Author in published package metadata: João Lucas <jlucaso@hotmail.com>
+Source: https://github.com/jlucaso1/whatsapp-rust-bridge
+Published package license declaration: MIT
+
+The npm archive does not contain a standalone license file. The standard MIT
+license text follows, with the author attribution supplied by its package
+metadata. No copyright year is inferred.
+
+MIT License
+
+Copyright (c) João Lucas
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+SOURCE ARCHIVE SHA-256
+Ourin-MD-main.zip: cfcee09d84a76a2f3f679f6285ba14736fc37e595eee22965d620decbbb73c2e
+Baileys-Joss-main.zip: 45af7e4191670b27f38776545b76f26281ebd31951596cdb420b181b5b5719ec
+zapo-master.zip: d3319d4a462f109e1eece15c83f8eba26d87e616251c92cf07481f6e9891a469
+alya-js-main.zip: 26c15abad5a4a08a7984b347dd17921dbdc3ca83179d256bcb7e840abb129e16
+
+INTEGRATION NOTES
+Shared Zapo/Alya core is included once, using the patched superset from Alya.
+Every public runtime export of the supplied Zapo root exists in that superset.
+Baileys-compatible exports retain their signatures. Conflicting native client
+exports have purpose-specific names: clientProto, downloadClientMediaMessage,
+getClientContentType, fetchClientWaWebVersion, writeClientRandomPadMax16,
+clientDelay. Third-party names were not removed from this attribution record.
+
+Optional native accelerator probing is replaced with the existing portable
+JavaScript/Node crypto fallback in this distribution. Required Rust/WASM
+utilities are included unchanged. Human-facing version warnings, temporary
+file prefixes and default sticker metadata use Ourin naming. No WhatsApp
+protocol or cryptographic wire format is invented by these packaging changes.
+The earlier type/integration fixes are retained: status download argument,
+resolved send options for fanout, query timeout, status API overloads, byte
+parser narrowing and caption typing. The upstream newsletter-status attribution
+extension remains experimental; its root contextInfo is not serialized by the
+supplied protobuf schema.
