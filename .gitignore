@@ -1,6 +1,0 @@
-node_modules/
-sessions/
-storage/
-.env
-*.log
-*.tgz
