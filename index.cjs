@@ -1,4 +1,4 @@
-/*! Ourin Remake Baileys 2.0.0 | Third-party licenses and attribution: LICENSES.txt */
+/*! Ourin Remake Baileys 2.0.1 | Third-party licenses and attribution: LICENSES.txt */
 'use strict'
 var __create = Object.create
 var __defProp = Object.defineProperty
@@ -184791,9 +184791,106 @@ var MIMETYPE_MAP = {
 function hasOptionalProperty(obj, key) {
   return typeof obj == 'object' && obj !== null && key in obj && obj[key] !== null
 }
-var generateWAMessageContent = async (message, options) => {
+// Normalize outgoing protobuf payloads in the generator AND direct relay path.
+// Do not treat raw Message fields as media uploads or attach context to wrappers.
+function normalizeOutgoingLocation(value, live = false) {
+  if (!value || typeof value !== 'object' || Array.isArray(value))
+    throw new TypeError('location must be an object with degreesLatitude and degreesLongitude')
+  for (const [key, limit] of [['degreesLatitude', 90], ['degreesLongitude', 180]]) {
+    if (typeof value[key] !== 'number' || !Number.isFinite(value[key]) || Math.abs(value[key]) > limit)
+      throw new TypeError(`location.${key} must be a finite number between ${-limit} and ${limit}`)
+  }
+  return (live ? proto.Message.LiveLocationMessage : proto.Message.LocationMessage).fromObject(value)
+}
+function normalizeOutgoingMessage(value, depth = 0) {
+  if (!value || typeof value !== 'object' || Array.isArray(value))
+    throw new TypeError('Message content must be an object')
+  if (depth > 16) throw new TypeError('Message wrappers are nested too deeply')
+  const message = { ...value }
+  if (message.locationMessage != null) message.locationMessage = normalizeOutgoingLocation(message.locationMessage)
+  if (message.liveLocationMessage != null) message.liveLocationMessage = normalizeOutgoingLocation(message.liveLocationMessage, true)
+  if (message.buttonsMessage) {
+    const buttons = { ...message.buttonsMessage }
+    const headers = [['documentMessage', 'DOCUMENT'], ['imageMessage', 'IMAGE'], ['videoMessage', 'VIDEO'], ['locationMessage', 'LOCATION']]
+      .filter(([key]) => buttons[key] != null)
+    if (headers.length > 1) throw new TypeError('buttonsMessage must contain only one header')
+    if (buttons.locationMessage) buttons.locationMessage = normalizeOutgoingLocation(buttons.locationMessage)
+    if (headers.length) buttons.headerType = proto.Message.ButtonsMessage.HeaderType[headers[0][1]]
+    if (buttons.buttons != null && !Array.isArray(buttons.buttons)) throw new TypeError('buttons must be an array')
+    if (buttons.buttons) buttons.buttons = buttons.buttons.map(button => {
+      const result = { ...button }
+      if (result.nativeFlowInfo) {
+        result.type = proto.Message.ButtonsMessage.Button.Type.NATIVE_FLOW
+      } else if (result.buttonText) {
+        result.type = proto.Message.ButtonsMessage.Button.Type.RESPONSE
+      }
+      return result
+    })
+    message.buttonsMessage = buttons
+  }
+  if (message.templateMessage) {
+    message.templateMessage = { ...message.templateMessage }
+    for (const key of ['hydratedTemplate', 'hydratedFourRowTemplate', 'fourRowTemplate']) {
+      const header = message.templateMessage[key]
+      if (header?.locationMessage) message.templateMessage[key] = { ...header, locationMessage: normalizeOutgoingLocation(header.locationMessage) }
+    }
+  }
+  if (message.interactiveMessage) {
+    message.interactiveMessage = { ...message.interactiveMessage }
+    const interactive = message.interactiveMessage
+    if (interactive.header?.locationMessage) interactive.header = { ...interactive.header, locationMessage: normalizeOutgoingLocation(interactive.header.locationMessage), hasMediaAttachment: true }
+    if (interactive.carouselMessage?.cards) interactive.carouselMessage = {
+      ...interactive.carouselMessage,
+      cards: interactive.carouselMessage.cards.map(card => normalizeOutgoingMessage({ interactiveMessage: card }, depth + 1).interactiveMessage),
+    }
+  }
+  for (const key of ['ephemeralMessage', 'viewOnceMessage', 'viewOnceMessageV2', 'viewOnceMessageV2Extension', 'documentWithCaptionMessage', 'editedMessage', 'associatedChildMessage', 'groupStatusMessage', 'groupStatusMessageV2', 'deviceSentMessage']) {
+    if (message[key]?.message) message[key] = { ...message[key], message: normalizeOutgoingMessage(message[key].message, depth + 1) }
+  }
+  if (message.protocolMessage?.editedMessage) message.protocolMessage = {
+    ...message.protocolMessage, editedMessage: normalizeOutgoingMessage(message.protocolMessage.editedMessage, depth + 1),
+  }
+  return proto.Message.decode(proto.Message.encode(proto.Message.fromObject(message)).finish())
+}
+function outgoingContextTarget(message) {
+  let inner = normalizeMessageContent(message)
+  if (inner?.protocolMessage?.editedMessage) return outgoingContextTarget(inner.protocolMessage.editedMessage)
+  if (inner?.conversation != null) {
+    inner.extendedTextMessage = { text: inner.conversation }
+    delete inner.conversation
+  }
+  const key = getContentType(inner)
+  const target = inner?.[key]
+  if (!target || typeof target !== 'object') throw new TypeError('Message has no content that can carry contextInfo')
+  return target
+}
+async function prepareOutgoingButtons(message, options) {
+  if (!Array.isArray(message.buttons) || !message.buttons.length) throw new TypeError('buttons must be a non-empty array')
+  const body = { contentText: message.caption ?? message.text ?? message.body ?? '', footerText: message.footer, buttons: message.buttons }
+  if (message.location != null) body.locationMessage = normalizeOutgoingLocation(message.location)
+  else {
+    const media = ['image', 'video', 'document'].filter(key => message[key] != null)
+    if (media.length > 1) throw new TypeError('Button messages must contain only one media header')
+    if (media.length) {
+      const key = media[0]
+      const prepared = await prepareWAMessageMedia({ ...message, [key]: message[key] }, options)
+      body[`${key}Message`] = prepared[`${key}Message`]
+    } else if (message.title) { body.text = message.title; body.headerType = proto.Message.ButtonsMessage.HeaderType.TEXT }
+    else body.headerType = proto.Message.ButtonsMessage.HeaderType.EMPTY
+  }
+  return { buttonsMessage: body }
+}
+var generateWAMessageContent = async (message, options = {}) => {
+    if (!message || typeof message !== 'object' || Array.isArray(message)) throw new TypeError('Message content must be an object')
+    message = { ...message, ...(message.react ? { react: { ...message.react } } : {}), ...(message.poll ? { poll: { ...message.poll } } : {}) }
+    const raw = Object.fromEntries(Object.entries(message).filter(([key, value]) => value != null && Object.prototype.hasOwnProperty.call(proto.Message.prototype, key) && key !== 'toJSON'))
     let m = {}
-    if (hasNonNullishProperty(message, 'text')) {
+    if (Object.keys(raw).some(key => key !== 'messageContextInfo')) m = normalizeOutgoingMessage(raw)
+    else if (message.buttons != null) m = await prepareOutgoingButtons(message, options)
+    else if (message.sections != null) m = generateInteractiveListMessage(message)
+    else if (hasNonNullishProperty(message, 'liveLocation')) m.liveLocationMessage = normalizeOutgoingLocation(message.liveLocation, true)
+    else if (hasNonNullishProperty(message, 'text')) {
+      if (typeof message.text !== 'string') throw new TypeError('text must be a string')
       let extContent = { text: message.text },
         urlInfo = message.linkPreview
       if (
@@ -184826,7 +184923,7 @@ var generateWAMessageContent = async (message, options) => {
         ? (m.contactMessage = proto.Message.ContactMessage.create(message.contacts.contacts[0]))
         : (m.contactsArrayMessage = proto.Message.ContactsArrayMessage.create(message.contacts))
     } else if (hasNonNullishProperty(message, 'location'))
-      m.locationMessage = proto.Message.LocationMessage.create(message.location)
+      m.locationMessage = normalizeOutgoingLocation(message.location)
     else if (hasNonNullishProperty(message, 'react'))
       (message.react.senderTimestampMs || (message.react.senderTimestampMs = Date.now()),
         (m.reactionMessage = proto.Message.ReactionMessage.create(message.react)))
@@ -184884,9 +184981,11 @@ var generateWAMessageContent = async (message, options) => {
             type: proto.Message.ButtonsResponseMessage.Type.DISPLAY_TEXT,
           }
           break
+        default:
+          throw new TypeError('buttonReply.type must be template or plain')
       }
     else if (hasOptionalProperty(message, 'ptv') && message.ptv) {
-      let { videoMessage } = await prepareWAMessageMedia({ video: message.video }, options)
+      let { videoMessage } = await prepareWAMessageMedia({ ...message, ptv: false }, options)
       m.ptvMessage = videoMessage
     } else if (hasNonNullishProperty(message, 'product')) {
       let { imageMessage } = await prepareWAMessageMedia({ image: message.product.productImage }, options)
@@ -184957,37 +185056,17 @@ var generateWAMessageContent = async (message, options) => {
               : hasNonNullishProperty(message, 'album')
                 ? (m = {})
                 : (m = await prepareWAMessageMedia(message, options))
-    if (
-      (hasOptionalProperty(message, 'viewOnce') && message.viewOnce && (m = { viewOnceMessage: { message: m } }),
-      (hasOptionalProperty(message, 'mentions') && message.mentions?.length) ||
-        (hasOptionalProperty(message, 'mentionAll') && message.mentionAll))
-    ) {
-      let messageType = Object.keys(m)[0],
-        key = m[messageType]
-      key && 'contextInfo' in key
-        ? ((key.contextInfo = key.contextInfo || {}),
-          message.mentions?.length && (key.contextInfo.mentionedJid = message.mentions),
-          message.mentionAll && (key.contextInfo.nonJidMentions = 1))
-        : key && (key.contextInfo = { mentionedJid: message.mentions, nonJidMentions: message.mentionAll ? 1 : 0 })
+    if (message.contextInfo || message.mentions?.length || message.mentionAll) {
+      const target = outgoingContextTarget(m)
+      target.contextInfo = { ...target.contextInfo, ...message.contextInfo }
+      if (message.mentions?.length) target.contextInfo.mentionedJid = message.mentions
+      if (message.mentionAll) target.contextInfo.nonJidMentions = 1
     }
-    if (
-      (hasOptionalProperty(message, 'edit') &&
-        (m = {
-          protocolMessage: {
-            key: message.edit,
-            editedMessage: m,
-            timestampMs: Date.now(),
-            type: proto.Message.ProtocolMessage.Type.MESSAGE_EDIT,
-          },
-        }),
-      hasOptionalProperty(message, 'contextInfo') && message.contextInfo)
-    ) {
-      let messageType = Object.keys(m)[0],
-        key = m[messageType]
-      'contextInfo' in key && key.contextInfo
-        ? (key.contextInfo = { ...key.contextInfo, ...message.contextInfo })
-        : key && (key.contextInfo = message.contextInfo)
-    }
+    if (message.messageContextInfo) m.messageContextInfo = { ...m.messageContextInfo, ...message.messageContextInfo }
+    if (message.viewOnce && !m.viewOnceMessage && !m.viewOnceMessageV2 && !m.viewOnceMessageV2Extension) m = { viewOnceMessage: { message: m } }
+    if (message.edit) m = { protocolMessage: {
+      key: message.edit, editedMessage: m, timestampMs: Date.now(), type: proto.Message.ProtocolMessage.Type.MESSAGE_EDIT,
+    } }
     return (
       hasOptionalProperty(message, 'albumParentKey') &&
         message.albumParentKey &&
@@ -185002,20 +185081,24 @@ var generateWAMessageContent = async (message, options) => {
         ((m.messageContextInfo = m.messageContextInfo || {}),
         m.messageContextInfo.messageSecret ||
           (m.messageContextInfo.messageSecret = (0, import_crypto7.randomBytes)(32))),
-      proto.Message.create(m)
+      normalizeOutgoingMessage(m)
     )
   },
-  generateWAMessageFromContent = (jid, message, options) => {
+  generateWAMessageFromContent = (jid, message, options = {}) => {
+    message = normalizeOutgoingMessage(message)
+    if (options.quoted || options.ephemeralExpiration) outgoingContextTarget(message)
+    options = { ...options }
     options.timestamp || (options.timestamp = new Date())
     let innerMessage = normalizeMessageContent(message),
       key = getContentType(innerMessage),
       timestamp = unixTimestampSeconds(options.timestamp),
       { quoted, userJid } = options
+    if (!key) throw new TypeError('Unsupported or empty Message content')
     if (quoted && !isJidNewsletter(jid)) {
       let participant = quoted.key.fromMe
           ? userJid
           : quoted.participant || quoted.key.participant || quoted.key.remoteJid,
-        quotedMsg = normalizeMessageContent(quoted.message),
+        quotedMsg = normalizeMessageContent(proto.Message.decode(proto.Message.encode(quoted.message).finish())),
         msgType = getContentType(quotedMsg)
       quotedMsg = proto.Message.create({ [msgType]: quotedMsg[msgType] })
       let quotedContent = quotedMsg[msgType]
@@ -185023,19 +185106,19 @@ var generateWAMessageContent = async (message, options) => {
         quotedContent &&
         'contextInfo' in quotedContent &&
         delete quotedContent.contextInfo
-      let contextInfo = ('contextInfo' in innerMessage[key] && innerMessage[key]?.contextInfo) || {}
+      let contextInfo = outgoingContextTarget(message).contextInfo || {}
       ;((contextInfo.participant = jidNormalizedUser(participant)),
         (contextInfo.stanzaId = quoted.key.id),
         (contextInfo.quotedMessage = quotedMsg),
         jid !== quoted.key.remoteJid && (contextInfo.remoteJid = quoted.key.remoteJid),
-        contextInfo && innerMessage[key] && (innerMessage[key].contextInfo = contextInfo))
+        contextInfo && (outgoingContextTarget(message).contextInfo = contextInfo))
     }
     ;(options?.ephemeralExpiration &&
       key !== 'protocolMessage' &&
       key !== 'ephemeralMessage' &&
       !isJidNewsletter(jid) &&
-      (innerMessage[key].contextInfo = {
-        ...(innerMessage[key].contextInfo || {}),
+      (outgoingContextTarget(message).contextInfo = {
+        ...(outgoingContextTarget(message).contextInfo || {}),
         expiration: options.ephemeralExpiration || WA_DEFAULT_EPHEMERAL,
       }),
       (message = proto.Message.create(message)))
@@ -186486,13 +186569,13 @@ var mutationKeys = (keydata) => {
       return lastMsgTimestamp >= chatLastMsgTimestamp
     }
   }
-var import_node_cache = __toESM(require('@cacheable/node-cache'), 1),
+var import_node_cache = __toESM(require('@cacheable/node-cache')),
   import_boom9 = require('@hapi/boom'),
   import_async_hooks = require('async_hooks'),
   import_async_mutex = require('async-mutex'),
   import_crypto14 = require('crypto'),
-  import_p_queue2 = __toESM(require('p-queue'), 1)
-var import_p_queue = __toESM(require('p-queue'), 1),
+  import_p_queue2 = __toESM(require('p-queue'))
+var import_p_queue = __toESM(require('p-queue')),
   PreKeyManager = class {
     constructor(store, logger) {
       this.store = store
@@ -188179,6 +188262,9 @@ var generateInteractiveButtonMessage = async (content, options) => {
       )
       ;((buttonsMessage.documentMessage = media.documentMessage),
         (buttonsMessage.headerType = proto.Message.ButtonsMessage.HeaderType.DOCUMENT))
+    } else if (content.headerLocation) {
+      buttonsMessage.locationMessage = normalizeOutgoingLocation(content.headerLocation)
+      buttonsMessage.headerType = proto.Message.ButtonsMessage.HeaderType.LOCATION
     } else
       content.title &&
         ((buttonsMessage.text = content.title),
@@ -188245,9 +188331,8 @@ var generateInteractiveButtonMessage = async (content, options) => {
         footer: options?.footer ? { text: options.footer } : void 0,
         header: options?.header
           ? {
-              title: options.header.title,
-              subtitle: options.header.subtitle,
-              hasMediaAttachment: options.header.hasMediaAttachment || !1,
+              ...options.header,
+              hasMediaAttachment: !!(options.header.hasMediaAttachment || options.header.locationMessage || options.header.imageMessage || options.header.videoMessage || options.header.documentMessage),
             }
           : void 0,
         nativeFlowMessage: { buttons: nativeFlowButtons, messageParamsJson: '' },
@@ -190343,7 +190428,7 @@ var uploadingNecessaryImages = async (images, waUploadToServer, timeoutMs = 3e4)
       canAppeal: getBinaryNodeChildString(node, 'can_appeal') === 'true',
     }
   }
-var import_node_cache4 = __toESM(require('@cacheable/node-cache'), 1),
+var import_node_cache4 = __toESM(require('@cacheable/node-cache')),
   import_boom17 = require('@hapi/boom'),
   import_crypto23 = require('crypto')
 var import_async_mutex3 = require('async-mutex'),
@@ -190396,7 +190481,7 @@ function makeOfflineNodeProcessor(nodeProcessorMap, deps, batchSize = 10) {
   }
 }
 var import_boom15 = require('@hapi/boom')
-var import_node_cache2 = __toESM(require('@cacheable/node-cache'), 1),
+var import_node_cache2 = __toESM(require('@cacheable/node-cache')),
   import_boom14 = require('@hapi/boom')
 var USyncDeviceProtocol = class {
   constructor() {
@@ -192511,7 +192596,7 @@ var makeGroupsSocket = (config) => {
       ephemeralDuration: eph ? +eph : void 0,
     }
   }
-var import_node_cache3 = __toESM(require('@cacheable/node-cache'), 1),
+var import_node_cache3 = __toESM(require('@cacheable/node-cache')),
   import_boom16 = require('@hapi/boom'),
   import_crypto22 = require('crypto')
 var parseNewsletterCreateResponse = (response) => {
@@ -192930,8 +193015,11 @@ var makeMessagesSocket = (config) => {
         useUserDevicesCache,
         useCachedGroupMetadata,
         statusJidList,
-      },
+      } = {},
     ) => {
+      if (!jidDecode(jid)) throw new TypeError('Invalid recipient JID')
+      message = normalizeOutgoingMessage(message)
+      if (!getContentType(message)) throw new TypeError('Unsupported or empty Message content')
       let meId = assertMeId(authState.creds),
         meLid = authState.creds.me?.lid,
         isRetryResend = !!participant?.jid,
@@ -193103,6 +193191,7 @@ var makeMessagesSocket = (config) => {
               ;(user2 === mePnUser || user2 === meLidUser ? meRecipients.push(jid2) : otherRecipients.push(jid2),
                 allRecipients.push(jid2))
             }
+            if (!allRecipients.length && !isRetryResend) throw new import_boom16.Boom('No recipient devices found', { statusCode: 404 })
             await assertSessions(allRecipients)
             let [
               { nodes: meNodes, shouldIncludeDeviceIdentity: s1 },
@@ -193299,8 +193388,9 @@ var makeMessagesSocket = (config) => {
                 : 'text'
         : 'text'
     },
-    getMediaType = (message) =>
-      message.imageMessage
+    getMediaType = (message) => {
+      message = extractMessageContent(message) || {}
+      return message.imageMessage
         ? 'image'
         : message.videoMessage
           ? message.videoMessage.gifPlayback
@@ -193334,7 +193424,8 @@ var makeMessagesSocket = (config) => {
                                   ? 'native_flow_response'
                                   : message.groupInviteMessage
                                     ? 'url'
-                                    : '',
+                                    : message.ptvMessage ? 'video' : ''
+    },
     issuePrivacyTokens = async (jids, timestamp) => {
       let t = (timestamp ?? unixTimestampSeconds()).toString()
       return await query({
@@ -193418,7 +193509,8 @@ var makeMessagesSocket = (config) => {
         return (ev.emit('messages.update', [{ key: message.key, update: { message: message.message } }]), message)
       },
       sendMessage: async (jid, content, options = {}) => {
-        let userJid = authState.creds.me.id
+        if (!content || typeof content !== 'object' || Array.isArray(content)) throw new TypeError('Message content must be an object')
+        let userJid = assertMeId(authState.creds)
         if (
           typeof content == 'object' &&
           'disappearingMessagesInChat' in content &&
@@ -193434,8 +193526,10 @@ var makeMessagesSocket = (config) => {
                 : 0
               : disappearingMessagesInChat,
           )
-        } else if (typeof content == 'object' && 'album' in content && content.album) {
-          let { album, caption } = content
+        } else if (Array.isArray(content.album)) {
+          const { caption } = content
+          const album = content.album.map(item => ({ ...item }))
+          if (!album.length || album.some(item => (item.image != null) === (item.video != null))) throw new TypeError('album must contain image or video items')
           caption && album[0] && !album[0].caption && (album[0].caption = caption)
           let albumMsg = generateWAMessageFromContent(
             jid,
@@ -193494,16 +193588,18 @@ var makeMessagesSocket = (config) => {
               messageId: generateMessageIDV2(sock.user?.id),
               ...options,
             }),
-            isEventMsg = 'event' in content && !!content.event,
-            isDeleteMsg = 'delete' in content && !!content.delete,
-            isEditMsg = 'edit' in content && !!content.edit,
-            isPinMsg = 'pin' in content && !!content.pin,
-            isPollMessage = 'poll' in content && !!content.poll,
+            normalizedContent = normalizeMessageContent(fullMsg.message),
+            protocol = normalizedContent?.protocolMessage,
+            isEventMsg = !!normalizedContent?.eventMessage,
+            isDeleteMsg = protocol?.type === proto.Message.ProtocolMessage.Type.REVOKE,
+            isEditMsg = protocol?.type === proto.Message.ProtocolMessage.Type.MESSAGE_EDIT,
+            isPinMsg = !!normalizedContent?.pinInChatMessage,
+            isPollMessage = !!(normalizedContent?.pollCreationMessage || normalizedContent?.pollCreationMessageV2 || normalizedContent?.pollCreationMessageV3),
             additionalAttributes = {},
             additionalNodes = []
           if (
             (isDeleteMsg
-              ? isJidGroup(content.delete?.remoteJid) && !content.delete?.fromMe
+              ? isJidGroup(protocol.key?.remoteJid) && !protocol.key?.fromMe
                 ? (additionalAttributes.edit = '8')
                 : (additionalAttributes.edit = '7')
               : isEditMsg

@@ -34,7 +34,7 @@
       "optional": true
     }
   },
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Unified Ourin WhatsApp library with a single runtime and public entry point",
   "license": "SEE LICENSE IN LICENSES.txt",
   "repository": {
@@ -66,12 +66,11 @@
     "index.d.mts",
     "bot.cjs",
     "README.md",
-    "LICENSES.txt",
-    "test.cjs"
+    "LICENSES.txt"
   ],
   "scripts": {
     "preinstall": "node -e \"const [m,n]=process.versions.node.split('.').map(Number);if(m<22||(m===22&&n<12)){console.error('Use Node.js >=22.12.0');process.exit(1)}\"",
     "start": "node bot.cjs",
-    "test": "node --test test.cjs"
+    "check": "node --check index.cjs && node --check index.mjs && node --check bot.cjs"
   }
 }
